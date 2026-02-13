@@ -7,7 +7,7 @@ import java.util.Properties;
 
 public class SimpleProducer {
 
-    private static final String BOOTSTRAP_SERVERS = "localhost:9094";
+    private static final String BOOTSTRAP_SERVERS = "localhost:9094,localhost:9095";
     private static final String TOPIC = "kraft-topic-1"; // или zk-topic-1
 
     public static void main(String[] args) {
@@ -53,7 +53,7 @@ public class SimpleProducer {
             }
 
         } finally {
-            // 4. Работа с IO-потоком (КРИТИЧНО по заданию)
+            // 4. Работа с IO-потоком
             producer.flush(); // дождаться отправки всех сообщений
             producer.close(); // корректно закрыть ресурсы
         }
