@@ -1,22 +1,22 @@
-package org.example.kafka;
+package org.example.kafka; // расположение класса
 
-import org.apache.kafka.clients.producer.*;
-import org.apache.kafka.common.serialization.StringSerializer;
+import org.apache.kafka.clients.producer.*; // импортируем  классы для работы продюсера
+import org.apache.kafka.common.serialization.StringSerializer;// класс для преобразования ключей и сообщения в байты
 
-import java.util.Properties;
+import java.util.Properties; // стандартный класс джавы для хранения настроек в виде ключ-значения
 
 public class SimpleProducer {
 
-    private static final String BOOTSTRAP_SERVERS = "localhost:9094,localhost:9095";
+    private static final String BOOTSTRAP_SERVERS = "localhost:9094,localhost:9095"; // список серверов кафки
     private static final String TOPIC = "kraft-topic-1"; // или zk-topic-1
 
     public static void main(String[] args) {
 
-        // 1. Настройки продюсера
-        Properties props = new Properties();
-        props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, BOOTSTRAP_SERVERS);
-        props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
-        props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
+        //  Настройки продюсера
+        Properties props = new Properties(); // создаем объект в котором будем хранить настройки продюсера
+        props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, BOOTSTRAP_SERVERS);//передаем сервера для подключения
+        props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName()); //сериализуем ключ в строку
+        props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());//сериализуем сообщения в строку
 
         // Гарантия доставки
 
@@ -26,16 +26,16 @@ public class SimpleProducer {
         props.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, false); // отключаем идемпотентность для At Least Once
 
         // 2. Создаём продюсер
-        KafkaProducer<String, String> producer = new KafkaProducer<>(props);
+        KafkaProducer<String, String> producer = new KafkaProducer<>(props); //создаем продюсера
 
         try {
-            // 3. Отправка сообщений (push)
+            // Отправка сообщений (push)
             for (int i = 1; i <= 10; i++) {
                 String key = String.valueOf(i);
                 String value = "Сообщение №" + i;
 
                 ProducerRecord<String, String> record =
-                        new ProducerRecord<>(TOPIC, key, value);
+                        new ProducerRecord<>(TOPIC, key, value); //создаем единичное сообщение, в котором указываем топик,ключ и значение
 
                 // Асинхронная отправка
                 producer.send(record, (metadata, exception) -> {
@@ -48,14 +48,14 @@ public class SimpleProducer {
                                 metadata.partition(),
                                 metadata.offset()
                         );
-                    }
+                    } // если ошибка, иначе выводим на экран тему, партицию и офсет
                 });
             }
 
         } finally {
             // 4. Работа с IO-потоком
             producer.flush(); // дождаться отправки всех сообщений
-            producer.close(); // корректно закрыть ресурсы
+            producer.close(); // закрываем продюсер что бы не оставлять ненужных открытых потоков
         }
 
     }

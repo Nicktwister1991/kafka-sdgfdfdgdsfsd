@@ -3,29 +3,30 @@ package org.example.kafka;
 import org.apache.kafka.clients.consumer.*;
 import org.apache.kafka.common.serialization.StringDeserializer;
 
-import java.time.Duration;
-import java.util.Collections;
-import java.util.Properties;
+import java.time.Duration; // для указания времени ожидания забора данных из кафки
+import java.util.Collections; // для создания списка тем
+import java.util.Properties; // хранение настроек консюмера
 
-public class SingleMessageConsumer implements Runnable {
+// Создаем консюмера с налседованием класса Runnable - это нужно что бы консюмеры работали каждый в своем потоке а не по очереди
+public class SingleMessageConsumer implements Runnable  {
 
-    private final String groupId;
-    private final String topic;
+    private final String groupId; // название группы консюмера
+    private final String topic; // имя темы куда подключаться
 
     public SingleMessageConsumer(String groupId, String topic) {
-        this.groupId = groupId;
-        this.topic = topic;
+        this.groupId = groupId; // когда запускаем консюмера, мы передаем ему его группу
+        this.topic = topic; //когда запускаем консюмера, мы передаем ему его топик
     }
-
+    // метод запускает консюмера
     @Override
     public void run() {
-        Properties props = new Properties();
-        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9094,localhost:9095");
-        props.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
-        props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
-        props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
+        Properties props = new Properties(); // создаем конфигурации
+        props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9094,localhost:9095");// указываем брокеров для подключения
+        props.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);//указываем группу
+        props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName()); // преобразуем байти из кафки в строку. Ключ
+        props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName()); // преобразуем байти из кафки в строку. Содержимое сообщений
         props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "true"); // авто-коммит после каждого сообщения
-        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
+        props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest"); // читать с самого начала партиции
         props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, "1"); // по одному сообщению за poll
 
         try (KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props)) {
