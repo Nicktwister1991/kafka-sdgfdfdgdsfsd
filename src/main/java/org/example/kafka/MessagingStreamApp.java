@@ -1,90 +1,128 @@
+
 package org.example.kafka;
-import org.apache.kafka.common.serialization.Serdes;
-import org.apache.kafka.streams.StreamsConfig;
-import org.apache.kafka.streams.KafkaStreams;
-import org.apache.kafka.streams.StreamsBuilder;
-import org.apache.kafka.streams.kstream.KStream;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.sun.tools.javac.Main;
+import org.apache.kafka.common.serialization.Serdes;
+import org.apache.kafka.streams.*;
+import org.apache.kafka.streams.kstream.*;
 
-import java.util.Properties;
+import java.io.InputStream;
+import java.util.*;
 
 public class MessagingStreamApp {
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
 
-        // ============================
-        // 1️⃣ Конфигурация Kafka Streams
-        // ============================
+        // ===== Загружаем конфигурацию =====
+        Properties appProps = new Properties();
+        InputStream input = Main.class.getClassLoader()
+                .getResourceAsStream("application.properties");
+        appProps.load(input);
+
         Properties props = new Properties();
-        props.put(StreamsConfig.APPLICATION_ID_CONFIG, "messaging-streams-app");
-        props.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9094"); // KRaft брокер
-        props.put(StreamsConfig.DEFAULT_KEY_SERDE_CLASS_CONFIG, Serdes.String().getClass());
-        props.put(StreamsConfig.DEFAULT_VALUE_SERDE_CLASS_CONFIG, Serdes.String().getClass());
+        props.put(StreamsConfig.APPLICATION_ID_CONFIG,
+                appProps.getProperty("application.id"));
+        props.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG,
+                appProps.getProperty("bootstrap.servers"));
+        props.put(StreamsConfig.DEFAULT_KEY_SERDE_CLASS_CONFIG,
+                Serdes.String().getClass());
+        props.put(StreamsConfig.DEFAULT_VALUE_SERDE_CLASS_CONFIG,
+                Serdes.String().getClass());
 
         StreamsBuilder builder = new StreamsBuilder();
+        ObjectMapper mapper = new ObjectMapper();
 
-        // ============================
-        // 2️⃣ Поток сообщений из топика messages
-        // ============================
-        KStream<String, String> messages = builder.stream("messages");
+        // ===== Локальные структуры (динамически обновляются) =====
+        Map<String, Set<String>> blockedUsersMap = new HashMap<>();
+        Set<String> bannedWordsSet = new HashSet<>();
 
-        ObjectMapper objectMapper = new ObjectMapper();
+        // ===== KTable blocked_users =====
+        KTable<String, String> blockedUsersTable =
+                builder.table(appProps.getProperty("topic.blocked"));
 
-        // ============================
-        // 3️⃣ Обработка: фильтрация и цензура
-        // ============================
-        KStream<String, String> filteredMessages = messages.mapValues(value -> {
-                    try {
-                        ObjectNode node = (ObjectNode) objectMapper.readTree(value);
-                        String fromUser = node.get("fromUser").asText();
-                        String toUser = node.get("toUser").asText();
-                        String text = node.get("text").asText();
+        blockedUsersTable.toStream().foreach((recipient, blockedList) -> {
+            if (blockedList == null) return;
 
-                        // ----------------------------
-                        // 3a️⃣ Фильтрация заблокированных пользователей
-                        // ----------------------------
-                        // Пример: user1 заблокирован у user2
-                        if (toUser.equals("user2") && fromUser.equals("user1")) {
-                            return null; // сообщение не проходит
-                        }
+            Set<String> blocked =
+                    new HashSet<>(Arrays.asList(blockedList.split(",")));
 
-                        // ----------------------------
-                        // 3b️⃣ Цензура запрещённых слов
-                        // ----------------------------
-                        String[] bannedWords = {"badword", "spam"}; // пример запрещённых слов
-                        for (String word : bannedWords) {
-                            text = text.replaceAll("(?i)\\b" + word + "\\b", "***");
-                        }
+            blockedUsersMap.put(recipient, blocked);
 
-                        node.put("text", text);
-                        return objectMapper.writeValueAsString(node);
+            System.out.println("Updated blocked list for " + recipient);
+        });
 
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                        return value; // если ошибка → возвращаем оригинальное сообщение
-                    }
-                })
-                .filter((key, value) -> value != null); // удаляем заблокированные сообщения
+        // ===== KTable banned_words =====
+        KTable<String, String> bannedWordsTable =
+                builder.table(appProps.getProperty("topic.banned"));
 
-        // ============================
-        // 4️⃣ Вывод в консоль
-        // ============================
-        filteredMessages.foreach((key, value) -> System.out.println("Filtered message: " + value));
+        bannedWordsTable.toStream().foreach((key, word) -> {
+            if (word != null) {
+                bannedWordsSet.add(word);
+                System.out.println("Added banned word: " + word);
+            }
+        });
 
-        // ============================
-        // 5️⃣ Отправка в топик filtered_messages
-        // ============================
-        filteredMessages.to("filtered_messages");
+        // ===== Поток сообщений =====
+        KStream<String, String> messages =
+                builder.stream(appProps.getProperty("topic.messages"));
 
-        // ============================
-        // 6️⃣ Запуск Kafka Streams
-        // ============================
-        KafkaStreams streams = new KafkaStreams(builder.build(), props);
+        KStream<String, String> processed =
+                messages.mapValues(value -> {
+
+                            try {
+                                // Десериализация JSON в объект Message
+                                Message msg =
+                                        mapper.readValue(value, Message.class);
+
+                                // ===== Проверка блокировки =====
+                                Set<String> blocked =
+                                        blockedUsersMap.get(msg.getRecipientId());
+
+                                if (blocked != null &&
+                                        blocked.contains(msg.getUserId())) {
+
+                                    System.out.println(
+                                            "Message blocked from "
+                                                    + msg.getUserId()
+                                                    + " to "
+                                                    + msg.getRecipientId());
+
+                                    return null;
+                                }
+
+                                // ===== Цензура =====
+                                String updated = msg.getMessage();
+
+                                for (String banned : bannedWordsSet) {
+                                    updated = updated.replaceAll(banned, "***");
+                                }
+
+                                msg.setMessage(updated);
+
+                                System.out.println("Processed message: "
+                                        + updated);
+
+
+                                return mapper.writeValueAsString(msg);
+
+                            } catch (Exception e) {
+                                e.printStackTrace();
+                                return null;
+                            }
+                        })
+                        .filter((k, v) -> v != null); // отбрасываем заблокированные
+
+        // ===== Отправка в топик filtered =====
+        processed.to(appProps.getProperty("topic.filtered"));
+
+        // ===== Запуск потоков =====
+        KafkaStreams streams =
+                new KafkaStreams(builder.build(), props);
+
         streams.start();
 
-        // Корректное закрытие при остановке приложения
-        Runtime.getRuntime().addShutdownHook(new Thread(streams::close));
+        Runtime.getRuntime().addShutdownHook(
+                new Thread(streams::close));
     }
 }
